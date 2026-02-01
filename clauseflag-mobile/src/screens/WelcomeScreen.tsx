@@ -19,9 +19,11 @@ export default function WelcomeScreen() {
       <View style={styles.content}>
         {/* Logo / Icon */}
         <View style={styles.logoContainer}>
-          <View style={styles.logoCircle}>
-            <Text style={styles.logoText}>⚖️</Text>
-          </View>
+          <Image 
+            source={require('../../assets/logo-stacked.png')} 
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
 
         {/* Heading */}
@@ -84,17 +86,11 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     marginBottom: 24,
-  },
-  logoCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Colors.navy,
-    justifyContent: 'center',
     alignItems: 'center',
   },
-  logoText: {
-    fontSize: 48,
+  logoImage: {
+    width: 200,
+    height: 200,
   },
   title: {
     fontSize: 36,

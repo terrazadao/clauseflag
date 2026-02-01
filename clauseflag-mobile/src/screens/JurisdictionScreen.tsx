@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -27,6 +27,13 @@ export default function JurisdictionScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.logoHeader}>
+          <Image 
+            source={require('../../assets/icon.png')} 
+            style={styles.logoSmall}
+            resizeMode="contain"
+          />
+        </View>
         <Text style={styles.title}>Where are you signing?</Text>
         <Text style={styles.subtitle}>
           Select your jurisdiction. This helps us adjust risk interpretation for local laws.
@@ -90,6 +97,14 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 24,
+  },
+  logoHeader: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  logoSmall: {
+    width: 60,
+    height: 60,
   },
   title: {
     fontSize: 28,
