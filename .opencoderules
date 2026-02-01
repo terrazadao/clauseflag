@@ -1,0 +1,592 @@
+# ClauseFlag Development Instructions for OpenCode CLI
+
+## Project Overview
+ClauseFlag is a MicroSaaS contract clause risk scanner. It identifies high-risk clauses in contracts within 60 seconds for SMBs, founders, and freelancers. This is an MVP focused on speed, simplicity, and actionable insights—NOT comprehensive legal analysis.
+
+## Core Technical Stack
+- Frontend: Next.js 14+ (App Router), React, TypeScript, Tailwind CSS
+- Backend: Next.js API Routes, Node.js
+- Database: Supabase (PostgreSQL)
+- AI: OpenAI GPT-4 or Claude (structured JSON output)
+- Document Parsing: pdfplumber (PDF), python-docx (DOCX)
+- Payments: Stripe
+- Hosting: Vercel
+- Auth: Supabase Auth (Phase 2)
+
+## Mandatory Coding Principles
+
+### RELIABILITY
+- Use TypeScript strict mode, no `any` types
+- Wrap all async operations in try-catch with specific error messages
+- Validate all inputs (file type, size, format) client AND server-side
+- Implement comprehensive error boundaries in React components
+- Use Zod schemas for API request/response validation
+- Never crash user experience—always provide fallback UI
+- Log errors with context (Winston/Pino) but never log sensitive data
+- Implement retry logic with exponential backoff for AI API calls
+- Sanitize all file uploads, validate MIME types server-side
+
+### PERFORMANCE
+- Target: < 60 seconds total processing, < 3 seconds API response
+- Use React Server Components by default, client components only when needed
+- Implement Suspense boundaries for async operations
+- Lazy load heavy dependencies: `const parser = await import('pdfplumber')`
+- Stream AI responses to improve perceived performance
+- Cache parsed documents and clause analyses (Redis or in-memory for MVP)
+- Process multiple clauses in parallel with `Promise.all()` and concurrency limits
+- Use Next.js Image component, optimize assets
+- Keep client bundle < 200KB gzipped
+- Index database frequently: user_email, contract_id, created_at, status
+
+### CODE HEALTH
+- Single Responsibility Principle: one function = one purpose
+- DRY: create reusable utilities for parsing, AI prompts, risk scoring
+- Clear naming: `extractClausesFromPDF()` not `processDoc()`
+- JSDoc comments for all exported functions
+- Folder structure by domain:
+Copy
+/src /app # Next.js app router pages /components # Reusable UI components /ui # Base components (Button, Card, etc.) /contract # Contract-specific components /lib # Core business logic /parsers # Document parsing (pdf, docx) /ai # AI prompt templates & handlers /risk-engine # Risk scoring & classification /payment # Stripe integration /types # TypeScript type definitions /utils # Generic utilities /config # Configuration & constants
+
+- Environment variables for all secrets in `.env.local`
+- Never commit secrets or API keys
+- Write unit tests for parsers, risk engine, AI formatting
+
+### INNOVATION
+- Show real-time progress: upload → parsing → analyzing → results
+- Implement optimistic UI updates where appropriate
+- Smart document chunking: preserve clause context across chunks
+- Jurisdiction-aware risk adjustment (US/EU/UAE)
+- Clause fingerprinting: hash content for duplicate detection & caching
+- Return confidence scores with all AI analyses
+- Progressive enhancement: basic functionality without JS
+
+## Database Schema (Supabase PostgreSQL)
+
+```sql
+CREATE TABLE contracts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_email TEXT,
+  file_name TEXT NOT NULL,
+  file_size INTEGER,
+  file_url TEXT,
+  jurisdiction TEXT CHECK (jurisdiction IN ('US', 'EU', 'UAE')),
+  status TEXT DEFAULT 'processing' CHECK (status IN ('processing', 'completed', 'failed')),
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  processed_at TIMESTAMP
+);
+
+CREATE TABLE clauses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  contract_id UUID REFERENCES contracts(id) ON DELETE CASCADE,
+  clause_type TEXT NOT NULL,
+  risk_level TEXT CHECK (risk_level IN ('low', 'medium', 'high')),
+  original_text TEXT NOT NULL,
+  explanation TEXT,
+  why_it_matters TEXT,
+  confidence_score DECIMAL(3,2),
+  position_in_document INTEGER,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE payments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  contract_id UUID REFERENCES contracts(id),
+  stripe_payment_id TEXT UNIQUE,
+  amount INTEGER NOT NULL,
+  currency TEXT DEFAULT 'usd',
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_contracts_email ON contracts(user_email);
+CREATE INDEX idx_contracts_status ON contracts(status);
+CREATE INDEX idx_clauses_contract_risk ON clauses(contract_id, risk_level);
+CREATE INDEX idx_payments_stripe ON payments(stripe_payment_id);
+TypeScript Type Definitions
+Copy// /src/types/contract.ts
+export type Jurisdiction = 'US' | 'EU' | 'UAE';
+export type RiskLevel = 'low' | 'medium' | 'high';
+export type ContractStatus = 'processing' | 'completed' | 'failed';
+
+export type ClauseType = 
+  | 'termination'
+  | 'liability'
+  | 'indemnity'
+  | 'auto_renewal'
+  | 'payment_penalty'
+  | 'governing_law'
+  | 'ip_ownership'
+  | 'non_compete';
+
+export interface Contract {
+  id: string;
+  user_email: string | null;
+  file_name: string;
+  file_size: number;
+  jurisdiction: Jurisdiction;
+  status: ContractStatus;
+  created_at: string;
+  processed_at: string | null;
+}
+
+export interface Clause {
+  id: string;
+  contract_id: string;
+  clause_type: ClauseType;
+  risk_level: RiskLevel;
+  original_text: string;
+  explanation: string;
+  why_it_matters: string;
+  confidence_score: number;
+  position_in_document: number;
+}
+
+export interface ClauseAnalysis {
+  clause_type: ClauseType;
+  is_risky: boolean;
+  risk_level: RiskLevel;
+  explanation: string;
+  why_it_matters: string;
+  confidence: number;
+}
+Copy
+AI Integration Pattern
+Copy// /src/lib/ai/analyze-clause.ts
+import { OpenAI } from 'openai';
+import { ClauseAnalysis, Jurisdiction } from '@/types/contract';
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const SYSTEM_PROMPT = `You are a contract clause risk analyzer. Your job is to identify high-risk clauses and explain them in plain English to non-lawyers.
+
+CRITICAL RULES:
+- Only flag clauses that pose REAL risk to the signing party
+- Use plain English (8th grade reading level)
+- Be conservative and clear
+- Never provide legal advice
+- Return ONLY valid JSON, no markdown formatting
+
+Risk criteria by clause type:
+- Termination: Unfavorable notice periods, one-sided termination rights
+- Liability: Unlimited liability, inadequate caps, broad exclusions
+- Indemnity: One-sided obligations, broad scope, no limitations
+- Auto-renewal: Automatic renewal without clear opt-out
+- Payment: Harsh penalties, unclear terms, one-sided enforcement
+- Governing Law: Unfavorable jurisdiction, mandatory arbitration
+- IP Ownership: Broad IP transfer, unclear ownership
+- Non-compete: Overly broad scope, long duration, wide geography`;
+
+export async function analyzeClause(
+  clauseText: string,
+  jurisdiction: Jurisdiction,
+  contractType?: string
+): Promise<ClauseAnalysis> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: `Analyze this clause for risk:
+
+CLAUSE TEXT:
+"${clauseText}"
+
+CONTEXT:
+- Jurisdiction: ${jurisdiction}
+${contractType ? `- Contract Type: ${contractType}` : ''}
+
+Return JSON with this exact structure:
+{
+  "clause_type": "termination|liability|indemnity|auto_renewal|payment_penalty|governing_law|ip_ownership|non_compete",
+  "is_risky": true|false,
+  "risk_level": "low|medium|high",
+  "explanation": "Plain English explanation (max 150 words)",
+  "why_it_matters": "Practical implications for the signer (max 100 words)",
+  "confidence": 0.0-1.0
+}`
+        }
+      ],
+      max_tokens: 500
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error('Empty AI response');
+
+    const analysis = JSON.parse(content) as ClauseAnalysis;
+    
+    // Validate response structure
+    if (!analysis.clause_type || typeof analysis.is_risky !== 'boolean') {
+      throw new Error('Invalid AI response structure');
+    }
+
+    return analysis;
+  } catch (error) {
+    console.error('AI analysis failed:', error);
+    throw new Error('Failed to analyze clause. Please try again.');
+  }
+}
+Copy
+Document Parsing Pattern
+Copy// /src/lib/parsers/extract-text.ts
+export async function extractTextFromPDF(fileBuffer: Buffer): Promise<string> {
+  try {
+    // Use Python subprocess to call pdfplumber
+    const { spawn } = await import('child_process');
+    
+    return new Promise((resolve, reject) => {
+      const python = spawn('python3', ['-c', `
+import sys
+import pdfplumber
+import io
+
+pdf_bytes = sys.stdin.buffer.read()
+pdf_file = io.BytesIO(pdf_bytes)
+
+text = ""
+with pdfplumber.open(pdf_file) as pdf:
+    for page in pdf.pages:
+        text += page.extract_text() or ""
+        text += "\\n\\n"
+
+print(text)
+      `]);
+
+      let output = '';
+      let errorOutput = '';
+
+      python.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      python.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
+      python.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`PDF parsing failed: ${errorOutput}`));
+        } else {
+          resolve(output.trim());
+        }
+      });
+
+      python.stdin.write(fileBuffer);
+      python.stdin.end();
+    });
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    throw new Error('Unable to extract text from PDF');
+  }
+}
+
+export async function extractTextFromDOCX(fileBuffer: Buffer): Promise<string> {
+  try {
+    const mammoth = await import('mammoth');
+    const result = await mammoth.extractRawText({ buffer: fileBuffer });
+    return result.value;
+  } catch (error) {
+    console.error('DOCX extraction error:', error);
+    throw new Error('Unable to extract text from DOCX');
+  }
+}
+Copy
+Clause Detection Algorithm
+Copy// /src/lib/parsers/split-clauses.ts
+export function splitIntoClauses(documentText: string): string[] {
+  // Remove excessive whitespace
+  const normalized = documentText.replace(/\s+/g, ' ').trim();
+  
+  // Split by common clause indicators
+  const patterns = [
+    /\d+\.\s+[A-Z]/g,           // Numbered sections: "1. Termination"
+    /\n\n[A-Z][A-Z\s]+:/g,       // Headers: "GOVERNING LAW:"
+    /Article\s+\d+/gi,          // "Article 5"
+    /Section\s+\d+/gi,          // "Section 3"
+  ];
+
+  let clauses: string[] = [];
+  let lastIndex = 0;
+
+  patterns.forEach(pattern => {
+    const matches = [...normalized.matchAll(pattern)];
+    matches.forEach(match => {
+      if (match.index && match.index > lastIndex) {
+        const clause = normalized.slice(lastIndex, match.index).trim();
+        if (clause.length >= 50) { // Minimum clause length
+          clauses.push(clause);
+        }
+        lastIndex = match.index;
+      }
+    });
+  });
+
+  // Add remaining text
+  if (lastIndex < normalized.length) {
+    const finalClause = normalized.slice(lastIndex).trim();
+    if (finalClause.length >= 50) {
+      clauses.push(finalClause);
+    }
+  }
+
+  // If no clauses detected, split by paragraph
+  if (clauses.length === 0) {
+    clauses = normalized.split(/\n\n+/)
+      .map(c => c.trim())
+      .filter(c => c.length >= 50 && c.length <= 2000);
+  }
+
+  return clauses;
+}
+Copy
+API Route Pattern
+Copy// /src/app/api/analyze/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
+
+const AnalyzeRequestSchema = z.object({
+  contract_id: z.string().uuid(),
+  jurisdiction: z.enum(['US', 'EU', 'UAE'])
+});
+
+export async function POST(request: NextRequest) {
+  try {
+    // Validate request body
+    const body = await request.json();
+    const { contract_id, jurisdiction } = AnalyzeRequestSchema.parse(body);
+
+    // Initialize Supabase client
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Fetch contract
+    const { data: contract, error: fetchError } = await supabase
+      .from('contracts')
+      .select('*')
+      .eq('id', contract_id)
+      .single();
+
+    if (fetchError || !contract) {
+      return NextResponse.json(
+        { error: 'Contract not found' },
+        { status: 404 }
+      );
+    }
+
+    // Process contract (implement this)
+    // 1. Download file from storage
+    // 2. Extract text
+    // 3. Split into clauses
+    // 4. Analyze each clause with AI
+    // 5. Store results in database
+
+    return NextResponse.json({
+      success: true,
+      contract_id,
+      message: 'Analysis started'
+    });
+
+  } catch (error) {
+    console.error('Analysis error:', error);
+    
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Invalid request', details: error.errors },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+Copy
+UI Component Pattern
+Copy// /src/components/contract/clause-card.tsx
+import { Clause } from '@/types/contract';
+
+interface ClauseCardProps {
+  clause: Clause;
+}
+
+const RISK_COLORS = {
+  high: 'bg-red-50 border-red-300',
+  medium: 'bg-orange-50 border-orange-300',
+  low: 'bg-yellow-50 border-yellow-300'
+};
+
+const RISK_BADGES = {
+  high: 'bg-red-100 text-red-800',
+  medium: 'bg-orange-100 text-orange-800',
+  low: 'bg-yellow-100 text-yellow-800'
+};
+
+export function ClauseCard({ clause }: ClauseCardProps) {
+  return (
+    <div className={`rounded-lg border-2 p-6 ${RISK_COLORS[clause.risk_level]}`}>
+      {/* Risk Badge */}
+      <div className="flex items-center justify-between mb-4">
+        <span className={`px-3 py-1 rounded-full text-sm font-semibold uppercase ${RISK_BADGES[clause.risk_level]}`}>
+          {clause.risk_level} Risk
+        </span>
+        <span className="text-sm text-gray-600 capitalize">
+          {clause.clause_type.replace('_', ' ')}
+        </span>
+      </div>
+
+      {/* Original Clause Text */}
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Clause Text</h3>
+        <p className="text-sm text-gray-800 italic border-l-4 border-gray-400 pl-4">
+          &ldquo;{clause.original_text.substring(0, 200)}
+          {clause.original_text.length > 200 ? '...' : ''}&rdquo;
+        </p>
+      </div>
+
+      {/* Explanation */}
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">What This Means</h3>
+        <p className="text-sm text-gray-900">{clause.explanation}</p>
+      </div>
+
+      {/* Why It Matters */}
+      <div className="bg-white/50 rounded p-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">⚠️ Why This Matters</h3>
+        <p className="text-sm text-gray-900">{clause.why_it_matters}</p>
+      </div>
+
+      {/* Confidence Score (optional, can hide in production) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-2 text-xs text-gray-500">
+          Confidence: {(clause.confidence_score * 100).toFixed(0)}%
+        </div>
+      )}
+    </div>
+  );
+}
+Copy
+Legal Disclaimer Component
+Copy// /src/components/legal-disclaimer.tsx
+export function LegalDisclaimer({ variant = 'prominent' }: { variant?: 'prominent' | 'subtle' }) {
+  if (variant === 'subtle') {
+    return (
+      <p className="text-xs text-gray-600 text-center">
+        ⚠️ This tool provides information only and does NOT constitute legal advice.
+      </p>
+    );
+  }
+
+  return (
+    <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-6 my-6">
+      <div className="flex items-start gap-3">
+        <span className="text-3xl">⚠️</span>
+        <div>
+          <h3 className="font-bold text-gray-900 mb-2">Important Legal Notice</h3>
+          <p className="text-sm text-gray-800 leading-relaxed">
+            This tool provides <strong>informational analysis only</strong> and does NOT constitute legal advice. 
+            ClauseFlag is not a law firm and does not provide legal services. Always consult a qualified 
+            attorney before signing any contract. Results are provided &ldquo;as is&rdquo; without warranties 
+            of any kind.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+Environment Variables Template
+Copy# .env.example
+# Database
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# AI
+OPENAI_API_KEY=sk-...
+# OR
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Payments
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Application
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NODE_ENV=development
+
+# File Upload
+MAX_FILE_SIZE_MB=10
+ALLOWED_FILE_TYPES=application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+Security & Validation Checklist
+Every code generation MUST include:
+
+✅ Input validation (Zod schemas)
+✅ Error handling (try-catch, error boundaries)
+✅ Type safety (no any types)
+✅ SQL injection prevention (parameterized queries)
+✅ XSS prevention (sanitize user input)
+✅ CSRF protection (Next.js built-in)
+✅ Rate limiting on API routes
+✅ File upload validation (MIME type check)
+✅ Environment variable checks
+✅ Proper logging (no sensitive data)
+Performance Requirements
+First Contentful Paint: < 1.5s
+Time to Interactive: < 3.5s
+Total processing time: < 60s
+API response: < 3s
+Database query: < 500ms
+Code Style Rules
+Use functional components with hooks
+Prefer server components (default in Next.js 14)
+Use const over let, never use var
+Async/await over promises chains
+Descriptive variable names: riskyClausesProp not data
+Extract magic numbers to constants
+Comments for WHY, not WHAT
+One component per file
+Export types alongside components
+When Generating Code
+Always include error handling
+Add TypeScript types for all functions
+Validate inputs before processing
+Return structured responses
+Log errors with context
+Consider edge cases (empty, null, malformed data)
+Add loading/error states for UI components
+Include legal disclaimer on user-facing pages
+Optimize for performance (lazy loading, caching)
+Follow folder structure conventions
+MVP Scope Constraints
+DO NOT build:
+
+User authentication (Phase 2)
+Multi-language support (English only)
+Clause editing/redlining
+Team features
+Comparison tools
+Advanced analytics
+DO build:
+
+Single contract upload & analysis
+8 high-risk clause types only
+Simple pay-per-contract model
+Email delivery of results
+Jurisdiction selector (US/EU/UAE)
+Mobile-responsive UI
+Critical Success Factors
+Speed: Results in < 60 seconds
+Accuracy: High-risk clauses correctly identified (95%+)
+Simplicity: 8th-grade reading level explanations
+Reliability: No crashes, graceful error handling
+Legal Safety: Disclaimers everywhere, never give legal advice
+Remember: Build for reliability and speed FIRST, scalability SECOND. This is an MVP. Ship fast, iterate based on real user feedback.

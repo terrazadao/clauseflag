@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand Colors */
+  --navy: #1E3A8A;
+  --red: #EF4444;
+  --orange: #F97316;
+  --gray: #64748B;
+  --light: #F8FAFC;
+  --dark: #0F172A;
+
+  --background: var(--light);
+  --foreground: var(--dark);
+
+  /* Semantic Colors */
+  --primary: var(--navy);
+  --primary-foreground: #ffffff;
+  --secondary: var(--red);
+  --secondary-foreground: #ffffff;
+  --destructive: var(--red);
+  --destructive-foreground: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: var(--gray);
+  --border: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-brand-navy: var(--navy);
+  --color-brand-red: var(--red);
+  --color-brand-orange: var(--orange);
+  --color-brand-gray: var(--gray);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}

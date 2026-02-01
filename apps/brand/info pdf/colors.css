@@ -1,0 +1,37 @@
+/**
+ * ClauseFlag Brand Colors
+ * CSS Variables for easy theming
+ */
+
+:root {
+  /* Primary Brand Colors */
+  --color-navy: #1E3A8A;
+  --color-red: #EF4444;
+  --color-orange: #F97316;
+  --color-gray: #64748B;
+  --color-light: #F8FAFC;
+  --color-dark: #0F172A;
+  
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+  
+  /* Logo Specifications */
+  --logo-min-width: 120px;
+  --logo-clear-space: 0.5em;
+  
+  /* Component Colors */
+  --color-primary: var(--color-navy);
+  --color-secondary: var(--color-red);
+  --color-accent: var(--color-orange);
+  --color-text: var(--color-gray);
+  --color-background: var(--color-light);
+}
+
+/* Dark Mode Override */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: var(--color-dark);
+    --color-text: #E2E8F0;
+  }
+}
