@@ -1,5 +1,5 @@
 import mammoth from 'mammoth';
-import pdfParse from 'pdf-parse';
+import * as pdfParse from 'pdf-parse';
 import { UploadedFile } from '@clauseflag/shared';
 
 export interface ParsedDocument {
