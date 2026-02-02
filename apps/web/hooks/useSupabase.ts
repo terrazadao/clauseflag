@@ -1,13 +1,28 @@
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
-import { Session } from '@supabase/supabase-js';
+import { Session, createClient } from '@supabase/supabase-js';
+
+// Create a singleton Supabase client for browser
+const createBrowserClient = () => {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+      },
+    }
+  );
+};
 
 export function useSupabase() {
   const [user, setUser] = useState<any>(null);
   const router = useRouter();
 
-  const supabase = createClientComponentClient();
+  // Use a singleton pattern to avoid creating multiple clients
+  const [supabase] = useState(() => createBrowserClient());
 
   useEffect(() => {
     const getSession = async () => {
