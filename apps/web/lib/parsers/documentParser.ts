@@ -12,7 +12,7 @@ export async function parseDocument(file: UploadedFile): Promise<ParsedDocument>
   try {
     if (file.type === 'pdf') {
       const pdfData = await fetch(file.url!).then(res => res.arrayBuffer());
-      const pdf = await pdfParse(pdfData);
+      const pdf = await (pdfParse as any).default(pdfData);
 
       return {
         text: pdf.text,
@@ -21,7 +21,7 @@ export async function parseDocument(file: UploadedFile): Promise<ParsedDocument>
       };
     } else if (file.type === 'docx') {
       const docxData = await fetch(file.url!).then(res => res.arrayBuffer());
-      const result = await mammoth.extractRawText({ arrayBuffer: () => Promise.resolve(docxData) });
+      const result = await mammoth.extractRawText({ buffer: Buffer.from(docxData) });
 
       return {
         text: result.value,
