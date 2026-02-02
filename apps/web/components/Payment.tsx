@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { Stripe, loadStripe } from '@stripe/stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
+import { DollarSign, XCircle } from 'lucide-react';
 import { useSupabase } from '@/hooks/useSupabase';
 import { AnalysisResult } from '@clauseflag/shared';
 
@@ -53,13 +54,15 @@ export default function Payment({ result, onPaymentComplete }: PaymentProps) {
       }
 
       // Confirm payment
-      const { error: stripeError } = await stripe.confirmPayment({
-        elements: null,
-        confirmParams: {
-          return_url: `${window.location.origin}/result?contractId=${result.id}`,
+      const { error: stripeError } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: {
+            token: 'auto', // Stripe will handle this
+          },
+          billing_details: {
+            email: user?.email || '',
+          },
         },
-      }, {
-        payment_intent: clientSecret,
       });
 
       if (stripeError) {
