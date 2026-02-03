@@ -60,6 +60,7 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 ClauseFlag API running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('🔑 Environment keys loaded:', Object.keys(process.env).filter(k => k.includes('SUPABASE') || k.includes('OPENAI') || k.includes('RESEND')));
 });
 
 module.exports = app;
