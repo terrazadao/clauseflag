@@ -20,7 +20,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "resend": "^6.9.1",
-    "stripe": "^20.2.0",
+    "@stripe/stripe-js": "^17.4.0",
     "uuid": "^10.0.0"
   },
   "devDependencies": {
