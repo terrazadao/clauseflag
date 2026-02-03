@@ -8,6 +8,19 @@ export interface ParsedDocument {
   fileName: string;
 }
 
+export class DocumentParserError extends Error {
+  constructor(message: string, public code?: string) {
+    super(message);
+    this.name = 'DocumentParserError';
+  }
+}
+
+export const ERROR_CODES = {
+  UNSUPPORTED_TYPE: 'UNSUPPORTED_TYPE',
+  PARSE_FAILED: 'PARSE_FAILED',
+  FILE_TOO_LARGE: 'FILE_TOO_LARGE'
+} as const;
+
 export async function parseDocument(file: UploadedFile): Promise<ParsedDocument> {
   try {
     if (file.type === 'pdf') {
