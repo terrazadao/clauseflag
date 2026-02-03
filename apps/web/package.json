@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -20,7 +20,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "resend": "^6.9.1",
-    "@stripe/stripe-js": "^17.4.0",
+    "@stripe/stripe-js": "^16.6.0",
     "uuid": "^10.0.0"
   },
   "devDependencies": {
