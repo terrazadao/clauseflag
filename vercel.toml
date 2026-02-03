@@ -1,13 +1,4 @@
 version = 2
 
-[plugins]
-  ["@vercel/next"]
-
 [build]
   base = "apps/web/"
-  publish = ".next"
-
-[[redirects]]
-  from = "/"
-  to = "/apps/web/"
-  status = 301
