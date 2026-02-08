@@ -44,5 +44,5 @@ export function useSupabase() {
     router.push('/login');
   };
 
-  return { user, signOut };
+  return { user, supabase, signOut };
 }
