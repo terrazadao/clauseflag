@@ -18,7 +18,10 @@ export class DocumentParserError extends Error {
 export const ERROR_CODES = {
   UNSUPPORTED_TYPE: 'UNSUPPORTED_TYPE',
   PARSE_FAILED: 'PARSE_FAILED',
-  FILE_TOO_LARGE: 'FILE_TOO_LARGE'
+  FILE_TOO_LARGE: 'FILE_TOO_LARGE',
+  EMPTY_DOCUMENT: 'EMPTY_DOCUMENT',
+  CORRUPTED_PDF: 'CORRUPTED_PDF',
+  PASSWORD_PROTECTED: 'PASSWORD_PROTECTED',
 } as const;
 
 export async function parseDocument(file: UploadedFile): Promise<ParsedDocument> {
