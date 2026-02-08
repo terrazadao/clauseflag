@@ -17,7 +17,7 @@ import { parseDocument } from '@/lib/parsers/documentParser';
 import { splitIntoClauses } from '@/lib/parsers/clauseSplitter';
 
 // Lazy-initialize clients to avoid build-time errors when env vars are missing
-let supabaseAdmin: ReturnType<typeof createClient>;
+let supabaseAdmin: any;
 function getSupabase() {
     if (!supabaseAdmin) {
         supabaseAdmin = createClient(

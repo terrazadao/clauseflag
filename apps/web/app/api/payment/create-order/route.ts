@@ -13,7 +13,7 @@ function getRazorpay() {
   return razorpay;
 }
 
-let supabase: ReturnType<typeof createClient>;
+let supabase: any;
 function getSupabase() {
   if (!supabase) {
     supabase = createClient(
