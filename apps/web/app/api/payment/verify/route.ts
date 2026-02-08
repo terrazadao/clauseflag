@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+let supabase: ReturnType<typeof createClient>;
+function getSupabase() {
+  if (!supabase) {
+    supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+  }
+  return supabase;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update payment status
-    const { data: payment } = await supabase
+    const { data: payment } = await getSupabase()
       .from('payments')
       .update({
         razorpay_payment_id,
@@ -46,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     if (payment) {
       // Update contract payment status
-      await supabase
+      await getSupabase()
         .from('contracts')
         .update({ payment_status: 'completed' })
         .eq('id', payment.contract_id);

@@ -2,15 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import Razorpay from 'razorpay';
 import { createClient } from '@supabase/supabase-js';
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
+let razorpay: InstanceType<typeof Razorpay>;
+function getRazorpay() {
+  if (!razorpay) {
+    razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_KEY_SECRET!,
+    });
+  }
+  return razorpay;
+}
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+let supabase: ReturnType<typeof createClient>;
+function getSupabase() {
+  if (!supabase) {
+    supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+  }
+  return supabase;
+}
 
 const PRICE_PER_CONTRACT = 80000; // Rs 800 in paise
 
@@ -26,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify contract exists
-    const { data: contract, error: dbError } = await supabase
+    const { data: contract, error: dbError } = await getSupabase()
       .from('contracts')
       .select('id')
       .eq('id', contractId)
@@ -40,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create Razorpay order
-    const order = await razorpay.orders.create({
+    const order = await getRazorpay().orders.create({
       amount: PRICE_PER_CONTRACT,
       currency: 'INR',
       receipt: contractId,
@@ -50,7 +62,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Store order in DB
-    await supabase.from('payments').insert({
+    await getSupabase().from('payments').insert({
       contract_id: contractId,
       razorpay_order_id: order.id,
       amount: PRICE_PER_CONTRACT,

@@ -16,15 +16,25 @@ import {
 import { parseDocument } from '@/lib/parsers/documentParser';
 import { splitIntoClauses } from '@/lib/parsers/clauseSplitter';
 
-// Initialize Supabase admin client (bypass RLS for server operations)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+// Lazy-initialize clients to avoid build-time errors when env vars are missing
+let supabaseAdmin: ReturnType<typeof createClient>;
+function getSupabase() {
+    if (!supabaseAdmin) {
+        supabaseAdmin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+    }
+    return supabaseAdmin;
+}
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || '',
-});
+let openai: OpenAI;
+function getOpenAI() {
+    if (!openai) {
+        openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+    }
+    return openai;
+}
 
 // Rate limiting map (in production, use Redis)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -106,7 +116,7 @@ Provide your analysis in the following JSON format:
 
 Respond with ONLY valid JSON.`;
 
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
         model: 'gpt-4o',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 1024,
@@ -144,7 +154,7 @@ async function storeContract(
 ): Promise<string> {
     const fileType = file.type === 'application/pdf' ? 'pdf' : 'docx';
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await getSupabase()
         .from('contracts')
         .insert({
             user_id: userId,
@@ -205,14 +215,14 @@ async function updateContractResults(
         };
     });
 
-    const { error: clauseError } = await supabaseAdmin.from('clauses').insert(clauseRecords);
+    const { error: clauseError } = await getSupabase().from('clauses').insert(clauseRecords);
 
     if (clauseError) {
         console.error('Error storing clauses:', clauseError);
         throw new Error(`Failed to store clauses: ${clauseError.message}`);
     }
 
-    const { error: contractError } = await supabaseAdmin
+    const { error: contractError } = await getSupabase()
         .from('contracts')
         .update({
             status: 'completed' as ContractStatus,
@@ -289,7 +299,7 @@ async function verifyAuth(request: NextRequest): Promise<string | null> {
 
     const token = authHeader.substring(7);
     
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error } = await getSupabase().auth.getUser(token);
     
     if (error || !user) {
         return null;
@@ -350,7 +360,7 @@ export async function POST(request: NextRequest) {
         const fileExtension = file.name.split('.').pop() || 'pdf';
         const storagePath = `${userId}/${Date.now()}.${fileExtension}`;
         
-        const { error: uploadError } = await supabaseAdmin.storage
+        const { error: uploadError } = await getSupabase().storage
             .from('contracts')
             .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
@@ -362,7 +372,7 @@ export async function POST(request: NextRequest) {
             }, { status: 500 });
         }
 
-        const { data: { publicUrl } } = supabaseAdmin.storage
+        const { data: { publicUrl } } = getSupabase().storage
             .from('contracts')
             .getPublicUrl(storagePath);
 
@@ -375,7 +385,7 @@ export async function POST(request: NextRequest) {
         const clauses = await splitIntoClauses(parsedDocument.text, language);
 
         if (clauses.length === 0) {
-            await supabaseAdmin.from('contracts').update({
+            await getSupabase().from('contracts').update({
                 status: 'failed' as ContractStatus,
                 error_message: 'No clauses could be extracted from the document'
             }).eq('id', contractId);
@@ -417,7 +427,7 @@ export async function POST(request: NextRequest) {
 
         if (contractId) {
             try {
-                await supabaseAdmin.from('contracts').update({
+                await getSupabase().from('contracts').update({
                     status: 'failed' as ContractStatus,
                     error_message: error instanceof Error ? error.message : 'Unknown error'
                 }).eq('id', contractId);
@@ -458,7 +468,7 @@ export async function GET(request: NextRequest) {
             }, { status: 401 });
         }
 
-        const { data: contract, error: contractError } = await supabaseAdmin
+        const { data: contract, error: contractError } = await getSupabase()
             .from('contracts')
             .select('*')
             .eq('id', contractId)
@@ -473,7 +483,7 @@ export async function GET(request: NextRequest) {
         }
 
         if (contract.status === 'completed') {
-            const { data: clauses } = await supabaseAdmin
+            const { data: clauses } = await getSupabase()
                 .from('clauses')
                 .select('*')
                 .eq('contract_id', contractId);
