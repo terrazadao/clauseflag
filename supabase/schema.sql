@@ -93,9 +93,10 @@ CREATE TABLE public.payment_history (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
     credits_granted INTEGER NOT NULL,
-    stripe_payment_intent_id TEXT NOT NULL,
-    stripe_customer_id TEXT,
-    amount INTEGER NOT NULL, -- in smallest currency unit (e.g., paise for INR)
+    razorpay_order_id TEXT NOT NULL,
+    razorpay_payment_id TEXT,
+    razorpay_signature TEXT,
+    amount INTEGER NOT NULL, -- in smallest currency unit (paise for INR)
     currency TEXT DEFAULT 'inr' NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed', 'refunded')),
     error_message TEXT,
@@ -130,7 +131,7 @@ CREATE INDEX idx_analysis_credits_user_id ON public.analysis_credits(user_id);
 
 -- Payment history indexes
 CREATE INDEX idx_payment_history_user_id ON public.payment_history(user_id);
-CREATE INDEX idx_payment_history_stripe_id ON public.payment_history(stripe_payment_intent_id);
+CREATE INDEX idx_payment_history_razorpay_id ON public.payment_history(razorpay_order_id);
 CREATE INDEX idx_payment_history_status ON public.payment_history(status);
 CREATE INDEX idx_payment_history_created_at ON public.payment_history(created_at DESC);
 

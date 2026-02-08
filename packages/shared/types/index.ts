@@ -90,8 +90,9 @@ export interface PaymentHistory {
     id: string;
     user_id: string;
     credits_granted: number;
-    stripe_payment_intent_id: string;
-    stripe_customer_id?: string;
+    razorpay_order_id: string;
+    razorpay_payment_id?: string;
+    razorpay_signature?: string;
     amount: number;
     currency: string;
     status: PaymentStatus;
@@ -211,29 +212,37 @@ export interface AnalyzeContractResponse {
     };
 }
 
-export interface CreatePaymentIntentRequest {
-    credits_to_purchase: number;
+export interface CreateOrderRequest {
+    contractId: string;
     currency?: string;
 }
 
-export interface CreatePaymentIntentResponse {
-    client_secret: string;
-    payment_intent_id: string;
+export interface CreateOrderResponse {
+    order_id: string;
     amount: number;
     currency: string;
+    key_id: string;
 }
 
 // ============================================
-// Webhook Types (Stripe)
+// Webhook Types (Razorpay)
 // ============================================
 
-export interface StripeWebhookEvent {
-    type: string;
-    data: {
-        object: {
-            id: string;
-            metadata: Record<string, string>;
-            [key: string]: any;
+export interface RazorpayWebhookEvent {
+    event: string;
+    payload: {
+        payment: {
+            entity: {
+                id: string;
+                order_id: string;
+                amount: number;
+                currency: string;
+                status: string;
+                method: string;
+                description?: string;
+                notes?: Record<string, string>;
+                [key: string]: any;
+            };
         };
     };
 }

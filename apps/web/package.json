@@ -20,7 +20,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "resend": "^6.9.1",
-    "@stripe/stripe-js": "^16.6.0",
+    "razorpay": "^2.9.4",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

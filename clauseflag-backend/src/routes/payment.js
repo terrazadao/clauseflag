@@ -1,12 +1,18 @@
 const express = require('express');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const crypto = require('crypto');
+const Razorpay = require('razorpay');
 const supabase = require('../utils/supabase');
 
 const router = express.Router();
 
-const PRICE_PER_CONTRACT = 1000; // $10 in cents
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
-router.post('/create-intent', async (req, res) => {
+const PRICE_PER_CONTRACT = 80000; // Rs 800 in paise
+
+router.post('/create-order', async (req, res) => {
   try {
     const { contractId } = req.body;
 
@@ -25,15 +31,13 @@ router.post('/create-intent', async (req, res) => {
       return res.status(404).json({ error: 'Contract not found' });
     }
 
-    // Create payment intent
-    const paymentIntent = await stripe.paymentIntents.create({
+    // Create Razorpay order
+    const order = await razorpay.orders.create({
       amount: PRICE_PER_CONTRACT,
-      currency: 'usd',
-      metadata: {
+      currency: 'INR',
+      receipt: contractId,
+      notes: {
         contractId,
-      },
-      automatic_payment_methods: {
-        enabled: true,
       },
     });
 
@@ -42,74 +46,144 @@ router.post('/create-intent', async (req, res) => {
       .from('payments')
       .insert({
         contract_id: contractId,
-        stripe_payment_intent_id: paymentIntent.id,
+        razorpay_order_id: order.id,
         amount: PRICE_PER_CONTRACT,
-        currency: 'usd',
+        currency: 'inr',
         status: 'pending',
       });
 
     res.json({
-      clientSecret: paymentIntent.client_secret,
+      orderId: order.id,
       amount: PRICE_PER_CONTRACT,
-      currency: 'usd',
+      currency: 'INR',
+      keyId: process.env.RAZORPAY_KEY_ID,
     });
 
   } catch (error) {
-    console.error('Payment intent error:', error);
+    console.error('Create order error:', error);
     res.status(500).json({
-      error: 'Failed to create payment intent',
+      error: 'Failed to create order',
+      message: error.message,
+    });
+  }
+});
+
+router.post('/verify', async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: 'Missing payment verification fields' });
+    }
+
+    // Verify signature
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid payment signature' });
+    }
+
+    // Update payment status
+    const { data: payment } = await supabase
+      .from('payments')
+      .update({
+        razorpay_payment_id,
+        razorpay_signature,
+        status: 'succeeded',
+      })
+      .eq('razorpay_order_id', razorpay_order_id)
+      .select('contract_id')
+      .single();
+
+    if (payment) {
+      // Update contract payment status
+      await supabase
+        .from('contracts')
+        .update({ payment_status: 'completed' })
+        .eq('id', payment.contract_id);
+    }
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Payment verification error:', error);
+    res.status(500).json({
+      error: 'Failed to verify payment',
       message: error.message,
     });
   }
 });
 
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const signature = req.headers['x-razorpay-signature'];
 
-  let event;
-
+  // Verify webhook signature
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    if (expectedSignature !== signature) {
+      console.error('Webhook signature verification failed');
+      return res.status(400).json({ error: 'Invalid webhook signature' });
+    }
   } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    console.error('Webhook signature verification error:', err.message);
+    return res.status(400).json({ error: 'Webhook verification failed' });
   }
 
-  // Handle events
-  switch (event.type) {
-    case 'payment_intent.succeeded': {
-      const paymentIntent = event.data.object;
-      const contractId = paymentIntent.metadata.contractId;
+  const event = req.body;
 
-      // Update payment status
+  switch (event.event) {
+    case 'payment.authorized':
+    case 'payment.captured': {
+      const payment = event.payload.payment.entity;
+      const orderId = payment.order_id;
+
       await supabase
         .from('payments')
-        .update({ status: 'succeeded' })
-        .eq('stripe_payment_intent_id', paymentIntent.id);
+        .update({
+          razorpay_payment_id: payment.id,
+          status: 'succeeded',
+        })
+        .eq('razorpay_order_id', orderId);
 
       // Update contract payment status
-      await supabase
-        .from('contracts')
-        .update({ payment_status: 'completed' })
-        .eq('id', contractId);
+      const { data: paymentRecord } = await supabase
+        .from('payments')
+        .select('contract_id')
+        .eq('razorpay_order_id', orderId)
+        .single();
+
+      if (paymentRecord) {
+        await supabase
+          .from('contracts')
+          .update({ payment_status: 'completed' })
+          .eq('id', paymentRecord.contract_id);
+      }
 
       break;
     }
 
-    case 'payment_intent.payment_failed': {
-      const paymentIntent = event.data.object;
+    case 'payment.failed': {
+      const payment = event.payload.payment.entity;
+      const orderId = payment.order_id;
 
       await supabase
         .from('payments')
         .update({ status: 'failed' })
-        .eq('stripe_payment_intent_id', paymentIntent.id);
+        .eq('razorpay_order_id', orderId);
 
       break;
     }
 
     default:
-      console.log(`Unhandled event type: ${event.type}`);
+      console.log(`Unhandled event type: ${event.event}`);
   }
 
   res.json({ received: true });

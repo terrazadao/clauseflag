@@ -1,14 +1,33 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { loadStripe } from '@stripe/stripe-js';
 import { DollarSign, XCircle } from 'lucide-react';
 import { useSupabase } from '@/hooks/useSupabase';
 import { AnalysisResult } from '@clauseflag/shared';
 
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 interface PaymentProps {
   result: AnalysisResult;
   onPaymentComplete: () => void;
+}
+
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
 }
 
 export default function Payment({ result, onPaymentComplete }: PaymentProps) {
@@ -22,57 +41,84 @@ export default function Payment({ result, onPaymentComplete }: PaymentProps) {
     setError('');
 
     try {
-      // Create payment intent
-      const response = await fetch('/api/stripe/create-payment-intent', {
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        throw new Error('Failed to load Razorpay SDK');
+      }
+
+      // Create order
+      const response = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          amount: 1000, // ₹1000 (₹800 + fees)
-          currency: 'inr',
-          email: user?.email || '',
-          metadata: {
-            contract_id: result.id,
-            clause_count: result.totalClauses,
-            risky_count: result.riskyClausesFound
-          }
-        })
+          contractId: result.id,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create payment intent');
+        throw new Error('Failed to create order');
       }
 
-      const { clientSecret } = await response.json();
+      const { orderId, amount, currency, keyId } = await response.json();
 
-      // Load Stripe
-      const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+      // Open Razorpay checkout
+      const options = {
+        key: keyId,
+        amount,
+        currency,
+        name: 'ClauseFlag',
+        description: 'Contract Analysis Payment',
+        order_id: orderId,
+        prefill: {
+          email: user?.email || '',
+        },
+        handler: async (response: {
+          razorpay_payment_id: string;
+          razorpay_order_id: string;
+          razorpay_signature: string;
+        }) => {
+          try {
+            const verifyRes = await fetch('/api/payment/verify', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
 
-      if (!stripe) {
-        throw new Error('Failed to load Stripe');
-      }
+            if (!verifyRes.ok) {
+              throw new Error('Payment verification failed');
+            }
 
-      // Confirm payment
-      const { error: stripeError } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: {
-            token: 'auto', // Stripe will handle this
-          },
-          billing_details: {
-            email: user?.email || '',
+            onPaymentComplete();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Payment verification failed');
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setLoading(false);
           },
         },
+        theme: {
+          color: '#2563EB',
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', (response: any) => {
+        setError(response.error.description || 'Payment failed');
+        setLoading(false);
       });
-
-      if (stripeError) {
-        throw new Error(stripeError.message);
-      }
-
-      onPaymentComplete();
+      rzp.open();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Payment failed');
-    } finally {
       setLoading(false);
     }
   };
@@ -90,14 +136,14 @@ export default function Payment({ result, onPaymentComplete }: PaymentProps) {
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Complete Your Payment</h2>
           <p className="text-gray-600">
-            Pay ₹800 ($10) to receive your full contract analysis report
+            Pay &#8377;800 to receive your full contract analysis report
           </p>
         </div>
 
         <div className="bg-blue-50 rounded-lg p-4 mb-6">
           <div className="flex items-center justify-between">
             <span className="font-medium text-gray-900">Total Amount</span>
-            <span className="text-2xl font-bold text-blue-600">₹800</span>
+            <span className="text-2xl font-bold text-blue-600">&#8377;800</span>
           </div>
           <p className="text-sm text-gray-500 mt-1">
             One-time payment per contract scan
@@ -115,7 +161,7 @@ export default function Payment({ result, onPaymentComplete }: PaymentProps) {
               Processing Payment...
             </div>
           ) : (
-            'Complete Payment'
+            'Pay with Razorpay'
           )}
         </button>
 

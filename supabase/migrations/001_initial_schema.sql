@@ -32,9 +32,11 @@ CREATE TABLE IF NOT EXISTS analyses (
 CREATE TABLE IF NOT EXISTS payments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   contract_id UUID NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
-  stripe_payment_intent_id TEXT NOT NULL,
+  razorpay_order_id TEXT NOT NULL,
+  razorpay_payment_id TEXT,
+  razorpay_signature TEXT,
   amount INTEGER NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'usd',
+  currency TEXT NOT NULL DEFAULT 'inr',
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'succeeded', 'failed')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
