@@ -245,9 +245,9 @@ export default function Home() {
       {/* Navbar */}
       <nav className="fixed w-full top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => setStep('landing')}>
-              <img src="/01_Logo_Horizontal_Primary.png" alt="ClauseFlag Logo" className="h-20 w-auto max-w-xs" />
+              <img src="/01_Logo_Horizontal_Primary.png" alt="ClauseFlag Logo" className="h-40 md:h-60 w-auto" />
 
             </div>
             <button
@@ -260,7 +260,7 @@ export default function Home() {
         </div>
       </nav>
 
-      <main className="pt-20">
+      <main className="pt-48 md:pt-72">
         {/* Show analysis flow if not on landing */}
         {step === 'analyzing' && (
           <section className="py-20 px-4 text-center max-w-2xl mx-auto">
