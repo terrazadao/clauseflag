@@ -247,8 +247,8 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => setStep('landing')}>
-              <span className="text-2xl">&#x1F6A9;</span>
-              <span className="font-bold text-xl tracking-tight text-blue-900">ClauseFlag</span>
+              <img src="/01_Logo_Horizontal_Primary.png" alt="ClauseFlag Logo" className="h-8" />
+
             </div>
             <button
               onClick={toggleLang}

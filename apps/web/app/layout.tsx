@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "ClauseFlag - Contract Risk Scanner",
   description: "Flag the risk before you sign. AI-powered contract analysis.",
   icons: {
-    icon: '/03_Icon_Only.png',
+    icon: '/favicon16x16.png',
   },
 };
 
