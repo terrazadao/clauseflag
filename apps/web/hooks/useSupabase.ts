@@ -4,17 +4,25 @@ import { Session, createClient } from '@supabase/supabase-js';
 
 // Create a singleton Supabase client for browser
 const createBrowserClient = () => {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true,
-      },
-    }
-  );
+  // Only run in browser environment
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+    },
+  });
 };
 
 export function useSupabase() {
@@ -22,9 +30,12 @@ export function useSupabase() {
   const router = useRouter();
 
   // Use a singleton pattern to avoid creating multiple clients
+  // Only initialize on client-side to avoid SSR/build-time errors
   const [supabase] = useState(() => createBrowserClient());
 
   useEffect(() => {
+    if (!supabase) return;
+
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
@@ -37,9 +48,10 @@ export function useSupabase() {
     });
 
     return () => subscription.unsubscribe();
-  }, [supabase.auth]);
+  }, [supabase]);
 
   const signOut = async () => {
+    if (!supabase) return;
     await supabase.auth.signOut();
     router.push('/login');
   };
